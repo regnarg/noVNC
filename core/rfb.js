@@ -964,7 +964,7 @@ export default class RFB extends EventTargetMixin {
             !this._rfb_credentials.password) {
             this.dispatchEvent(new CustomEvent(
                 "credentialsrequired",
-                { detail: { types: ["username", "password", "target"] } }));
+                { detail: { types: ["username", "password"] } }));
             return false;
         }
 

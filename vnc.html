@@ -292,9 +292,17 @@
     <div class="noVNC_center noVNC_connect_layer">
     <div id="noVNC_password_dlg" class="noVNC_panel"><form>
         <ul>
-            <li>
+            <li id="noVNC_username_li">
+                <label>Username:</label>
+                <input id="noVNC_username_input" type="text">
+            </li>
+            <li id="noVNC_password_li">
                 <label>Password:</label>
                 <input id="noVNC_password_input" type="password">
+            </li>
+            <li id="noVNC_target_li">
+                <label>Target:</label>
+                <input id="noVNC_target_input" type="text">
             </li>
             <li>
                 <input id="noVNC_password_button" type="submit" value="Send Password" class="noVNC_submit">

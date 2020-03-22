@@ -39,6 +39,8 @@ const UI = {
     reconnect_callback: null,
     reconnect_password: null,
 
+    requiredCredentialTypes: null,
+
     prime() {
         return WebUtil.initSettings().then(() => {
             if (document.readyState === "interactive" || document.readyState === "complete") {
@@ -1136,27 +1138,59 @@ const UI = {
  * ------v------*/
 
     credentials(e) {
-        // FIXME: handle more types
+        // Polyfill since IE and PhantomJS doesn't have
+        // TypedArray.includes()
+        function includes(item, array) {
+            for (let i = 0; i < array.length; i++) {
+                if (array[i] === item) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        const types = e.detail.types;
+        UI.requiredCredentialTypes = types;
+
         document.getElementById('noVNC_password_dlg')
             .classList.add('noVNC_open');
 
-        setTimeout(() => document
-            .getElementById('noVNC_password_input').focus(), 100);
+        document.getElementById('noVNC_username_li').style.display = includes('username', types) ? 'list-item' : 'none';
+        document.getElementById('noVNC_password_li').style.display = includes('password', types) ? 'list-item' : 'none';
+        document.getElementById('noVNC_target_li').style.display = includes('target', types) ? 'list-item' : 'none';
+        const focus = includes('username', types) ? 'noVNC_username_input' : 'noVNC_password_input';
+        setTimeout(() => document.getElementById(focus).focus(), 100);
 
         Log.Warn("Server asked for a password");
         UI.showStatus(_("Password is required"), "warning");
     },
 
     setPassword(e) {
+        // Polyfill since IE and PhantomJS doesn't have
+        // TypedArray.includes()
+        function includes(item, array) {
+            for (let i = 0; i < array.length; i++) {
+                if (array[i] === item) {
+                    return true;
+                }
+            }
+            return false;
+        }
         // Prevent actually submitting the form
         e.preventDefault();
 
+        const types = UI.requiredCredentialTypes;
+        var creds = {};
+
+        if (includes('username', types))
+            creds.username = document.getElementById('noVNC_username_input').value;
+        if (includes('target', types))
+            creds.target = document.getElementById('noVNC_target_input').value;
         const inputElem = document.getElementById('noVNC_password_input');
-        const password = inputElem.value;
+        creds.password = inputElem.value;
         // Clear the input after reading the password
         inputElem.value = "";
-        UI.rfb.sendCredentials({ password: password });
-        UI.reconnect_password = password;
+        UI.rfb.sendCredentials(creds);
+        UI.reconnect_password = creds.password;
         document.getElementById('noVNC_password_dlg')
             .classList.remove('noVNC_open');
     },
