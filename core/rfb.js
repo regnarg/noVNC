@@ -64,6 +64,7 @@ export default class RFB extends EventTargetMixin {
         this._rfb_version = 0;
         this._rfb_max_version = 3.8;
         this._rfb_tightvnc = false;
+        this._rfb_vencrypt_state = 0;
         this._rfb_xvp_ver = 0;
 
         this._fb_width = 0;
@@ -871,6 +872,8 @@ export default class RFB extends EventTargetMixin {
                 this._rfb_auth_scheme = 16; // Tight
             } else if (includes(2, types)) {
                 this._rfb_auth_scheme = 2; // VNC Auth
+            } else if (includes(19, types)) {
+                this._rfb_auth_scheme = 19; // VeNCrypt Auth
             } else {
                 return this._fail("Unsupported security types (types: " + types + ")");
             }
@@ -944,6 +947,77 @@ export default class RFB extends EventTargetMixin {
         this._sock.send_string(xvp_auth_str);
         this._rfb_auth_scheme = 2;
         return this._negotiate_authentication();
+    }
+
+    _negotiate_vencrypt_auth() {
+        // Polyfill since IE and PhantomJS doesn't have
+        // TypedArray.includes()
+        function includes(item, array) {
+            for (let i = 0; i < array.length; i++) {
+                if (array[i] === item) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (!this._rfb_credentials.username ||
+            !this._rfb_credentials.password) {
+            this.dispatchEvent(new CustomEvent(
+                "credentialsrequired",
+                { detail: { types: ["username", "password", "target"] } }));
+            return false;
+        }
+
+        if (this._rfb_vencrypt_state == 0) { // waiting for VeNCrypt version
+            if (this._sock.rQwait("vencrypt version", 2)) { return false; }
+            const major = this._sock.rQshift8();
+            const minor = this._sock.rQshift8();
+            if (!(major == 0 && minor == 2)) {
+                return this._fail("Unsupported VeNCrypt version " + major + "." + minor);
+            }
+            this._sock.send([0, 2]);
+            this._rfb_vencrypt_state = 1;
+        }
+        if (this._rfb_vencrypt_state == 1) { // waiting for ACK
+            if (this._sock.rQwait("vencrypt ack", 1)) { return false; }
+            const res = this._sock.rQshift8();
+            if (res != 0) {
+                return this._fail("VeNCrypt failure " + res);
+            }
+            this._rfb_vencrypt_state = 2;
+        } // must fall through here, beacause we may have already received the subtypes length and won't be called again
+        if (this._rfb_vencrypt_state == 2) { // waiting for subtypes length
+            if (this._sock.rQwait("vencrypt subtypes length", 1)) { return false; }
+            const subtypes_length = this._sock.rQshift8();
+            if (subtypes_length < 1) {
+                return this._fail("VeNCrypt subtypes empty");
+            }
+            this._rfb_vencrypt_subtypes_length = subtypes_length;
+            this._rfb_vencrypt_state = 3;
+        }
+        if (this._rfb_vencrypt_state == 3) { // waiting for subtypes list
+            if (this._sock.rQwait("vencrypt subtypes", 4 * this._rfb_vencrypt_subtypes_length)) { return false; }
+            var subtypes = [];
+            for (let i = 0; i < this._rfb_vencrypt_subtypes_length; i++) {
+                subtypes.push(this._sock.rQshift32());
+            }
+            if (includes(256, subtypes)) {
+                this._sock.send([0,0,1,0]); // 256
+                const user = this._rfb_credentials.username;
+                const pass = this._rfb_credentials.password;
+                this._sock.send([0,0,0,user.length]); // XXX assumes length <= 255
+                this._sock.send([0,0,0,pass.length]); // XXX assumes length <= 255
+                this._sock.send_string(user);
+                this._sock.send_string(pass);
+                this._rfb_init_state = "SecurityResult";
+                return true;
+            } else {
+                return this._fail("VeNCrypt Plain subtype not offered by server");
+            }
+        }
+
+
+        this._rfb_auth_scheme = 19;
     }
 
     _negotiate_std_vnc_auth() {
@@ -1084,6 +1158,9 @@ export default class RFB extends EventTargetMixin {
 
             case 16:  // TightVNC Security Type
                 return this._negotiate_tight_auth();
+
+            case 19:  // VeNCrypt Security Type
+                return this._negotiate_vencrypt_auth();
 
             default:
                 return this._fail("Unsupported auth scheme (scheme: " +
